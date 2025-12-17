@@ -2,7 +2,7 @@ Flask>=2.0
 flask-cors
 Pillow
 gunicorn
-pikepdf==8.1.0
+pikepdf>=9.0.0
 flask-cors 
 pymupdf
 img2pdf   
