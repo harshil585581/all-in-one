@@ -1,0 +1,38 @@
+# Conversion routes - Endpoints for file conversion operations
+from flask import Blueprint
+import os
+import sys
+
+conversion_bp = Blueprint("conversion", __name__)
+
+# Add parent directory to path to import existing modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import from existing files
+from filestopdf import file_pdf as _file_pdf_original, status as _status_original
+from filestoppt import convert_all_to_ppt as _to_ppt_original
+from filescompressor import compress_endpoint as _compress_original
+
+
+@conversion_bp.route("/file-pdf", methods=["POST"])
+def file_pdf():
+    """Convert various file formats to PDF"""
+    return _file_pdf_original()
+
+
+@conversion_bp.route("/status", methods=["GET"])
+def status():
+    """Status endpoint for conversion service"""
+    return _status_original()
+
+
+@conversion_bp.route("/convert-all-to-ppt", methods=["POST"])
+def convert_to_ppt():
+    """Convert files to PowerPoint format"""
+    return _to_ppt_original()
+
+
+@conversion_bp.route("/compress", methods=["POST", "OPTIONS"])
+def compress():
+    """Compress various file types"""
+    return _compress_original()

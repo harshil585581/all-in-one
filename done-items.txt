@@ -1,0 +1,16 @@
+pdf to word
+files compressor
+files to pdf
+file to ppt
+pdf protection
+pdf unlock
+watermark pdf(watermarkfiles.py)
+img to png
+img to jpg/jpeg
+img to webp
+upscale img
+downscale img
+remove img bg
+upscale video
+watermark images,videos
+download video from link(downloadvideolink_batch.py)
