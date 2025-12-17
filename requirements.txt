@@ -1,25 +1,33 @@
+# Core backend
 Flask>=2.0
-flask-cors
-Pillow
-gunicorn
-pikepdf>=9.0.0
-flask-cors 
-pymupdf
-img2pdf   
-pdf2docx
+flask-cors>=3.0
+gunicorn>=21.0
 werkzeug>=2.0
-docx2pdf
-pywin32
-python-pptx
-PyPDF2
-werkzeug
-reportlab
-pillow-heif
-cairosvg
-rembg
-onnxruntime
+
+# Images
+Pillow>=10.0
+pillow-heif>=0.15.0
+cairosvg>=2.7.0
+rembg>=2.0.50
+onnxruntime>=1.17.0
+numpy>=1.26.0
+
+# PDFs
+pikepdf>=9.0.0
+pymupdf>=1.23.0
+PyPDF2>=3.0.0
+img2pdf>=0.4.4
+pdf2docx>=0.5.8
+reportlab>=4.0.0
+
+# Office files
+python-docx>=1.1.0
+python-pptx>=0.6.23
+
+# Video / Audio
 moviepy==1.0.3
-numpy
-yt-dlp
-PyPDF2
-python-docx
+yt-dlp>=2024.10.0
+
+# Windows-only (Word → PDF via MS Word)
+docx2pdf==0.1.8 ; platform_system == "Windows"
+pywin32>=306 ; platform_system == "Windows"
