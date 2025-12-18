@@ -1,5 +1,5 @@
 # Video routes - Endpoints for video processing operations
-from flask import Blueprint
+from flask import Blueprint, request, jsonify
 import os
 import sys
 
@@ -16,10 +16,14 @@ from downloadvideolink_batch import download_video_batch as _download_batch_orig
 @video_bp.route("/video-upscale", methods=["POST", "OPTIONS"])
 def video_upscale():
     """Upscale video using FFmpeg"""
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _video_upscale_original()
 
 
 @video_bp.route("/download-video-batch", methods=["POST", "OPTIONS"])
 def download_video_batch():
     """Download videos from URLs (single or batch from file)"""
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _download_batch_original()

@@ -148,29 +148,41 @@ from watermarkimgvideo import watermark_imgvideo_endpoint as _watermark_original
 # Wrap the existing functions to keep them in this blueprint
 @image_bp.route("/img-jpg", methods=["POST", "OPTIONS"])
 def img_jpg():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _img_to_jpg_original()
 
 
 @image_bp.route("/img-png", methods=["POST", "OPTIONS"])
 def img_png():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _img_to_png_original()
 
 
 @image_bp.route("/img-webp", methods=["POST", "OPTIONS"])
 def img_webp():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _img_webp_original()
 
 
 @image_bp.route("/upscale", methods=["POST", "OPTIONS"])
 def upscale():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _upscale_original()
 
 
 @image_bp.route("/remove-imgbg", methods=["POST", "OPTIONS"])
 def remove_imgbg():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _remove_bg_original()
 
 
 @image_bp.route("/watermark-imgvideo", methods=["POST", "OPTIONS"])
 def watermark_imgvideo():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _watermark_original()

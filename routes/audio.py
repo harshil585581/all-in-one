@@ -1,5 +1,5 @@
 # Audio routes - Endpoints for audio processing operations
-from flask import Blueprint
+from flask import Blueprint, request, jsonify
 import os
 import sys
 
@@ -15,4 +15,6 @@ from audioextractor import download_audio_batch as _download_audio_original
 @audio_bp.route("/download-audio-batch", methods=["POST", "OPTIONS"])
 def download_audio_batch():
     """Extract audio from video URLs (single or batch from file)"""
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     return _download_audio_original()
