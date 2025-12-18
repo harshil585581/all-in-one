@@ -145,10 +145,18 @@ def extract_audio_from_video(video_path, output_dir):
     Returns the path to the extracted audio file or None if failed.
     """
     try:
-        print(f"Extracting audio from video: {video_path}")
+        print(f"[DEBUG] Starting audio extraction from video: {video_path}")
+        print(f"[DEBUG] Video file exists: {os.path.exists(video_path)}")
+        print(f"[DEBUG] Video file size: {os.path.getsize(video_path)} bytes")
         
         # Load video file
-        video = VideoFileClip(video_path)
+        try:
+            video = VideoFileClip(video_path)
+            print(f"[DEBUG] Video loaded successfully. Duration: {video.duration}s")
+        except Exception as load_error:
+            print(f"[ERROR] Failed to load video file: {load_error}")
+            print(f"[ERROR] This might be due to missing FFmpeg or unsupported codec")
+            raise
         
         # Get original filename without extension
         original_name = Path(video_path).stem
@@ -165,19 +173,38 @@ def extract_audio_from_video(video_path, output_dir):
             audio_path = os.path.join(output_dir, audio_filename)
             counter += 1
         
+        print(f"[DEBUG] Output audio path: {audio_path}")
+        
         # Extract audio
         if video.audio is not None:
-            video.audio.write_audiofile(audio_path, codec='mp3', verbose=False, logger=None)
-            video.close()
-            print(f"Audio extracted successfully: {audio_filename}")
-            return audio_path
+            print(f"[DEBUG] Audio track found, extracting...")
+            try:
+                # Use libmp3lame codec (more compatible than 'mp3')
+                video.audio.write_audiofile(
+                    audio_path, 
+                    codec='libmp3lame',
+                    bitrate='192k',
+                    verbose=False, 
+                    logger=None
+                )
+                video.close()
+                print(f"[SUCCESS] Audio extracted successfully: {audio_filename}")
+                print(f"[DEBUG] Output file size: {os.path.getsize(audio_path)} bytes")
+                return audio_path
+            except Exception as write_error:
+                video.close()
+                print(f"[ERROR] Failed to write audio file: {write_error}")
+                print(f"[ERROR] Make sure FFmpeg is installed and accessible")
+                raise
         else:
             video.close()
-            print(f"No audio track found in video: {video_path}")
+            print(f"[WARNING] No audio track found in video: {video_path}")
             return None
             
     except Exception as e:
-        print(f"Error extracting audio from video {video_path}: {e}")
+        print(f"[ERROR] Error extracting audio from video {video_path}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def get_audio_mimetype(filename):
@@ -210,6 +237,14 @@ def download_audio_batch():
         return '', 200
     
     try:
+        print("=" * 60)
+        print("[DEBUG] Received request to /download-audio-batch")
+        print(f"[DEBUG] Request method: {request.method}")
+        print(f"[DEBUG] Request headers: {dict(request.headers)}")
+        print(f"[DEBUG] Form data keys: {list(request.form.keys())}")
+        print(f"[DEBUG] Files in request: {list(request.files.keys())}")
+        print("=" * 60)
+        
         urls = []
         video_files = []  # For uploaded video files
         
@@ -233,13 +268,18 @@ def download_audio_batch():
             
             # Extract URLs based on file type
             file_ext = Path(file.filename).suffix.lower()
+            print(f"[DEBUG] Uploaded file: {file.filename}")
+            print(f"[DEBUG] File extension: {file_ext}")
+            print(f"[DEBUG] Temp file path: {temp_file.name}")
             
             # Check if it's a video file
             video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
             
             if file_ext in video_extensions:
                 # It's a video file - add to video_files list
+                print(f"[DEBUG] Detected as video file, adding to processing queue")
                 video_files.append(temp_file.name)
+
             
             elif file_ext == '.txt':
                 with open(temp_file.name, 'r', encoding='utf-8') as f:
