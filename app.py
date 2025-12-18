@@ -1,7 +1,7 @@
 # Main Flask Application - Entry Point
 # Unified backend service with modular structure
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 # Import blueprints
@@ -15,18 +15,47 @@ from routes.conversion import conversion_bp
 app = Flask(__name__)
 
 # Configure CORS
-# Use environment variable for production frontend URL
-# Falls back to allowing all origins for development
-frontend_origin = os.environ.get('FRONTEND_URL', '*')
+# Allow multiple origins for both development and production
+# Supports localhost for dev and production URLs
+allowed_origins = os.environ.get('FRONTEND_URL', 'http://localhost:4200,https://yourdomain.com')
+
+# Split comma-separated origins or use wildcard
+if allowed_origins == '*':
+    origins_list = '*'
+else:
+    origins_list = [origin.strip() for origin in allowed_origins.split(',')]
+
 CORS(app, resources={r"/*": {
-    "origins": frontend_origin,  # Set FRONTEND_URL env var in production
-    "allow_headers": "*",
-    "expose_headers": "*",
+    "origins": origins_list,
+    "allow_headers": ["Content-Type", "Authorization", "Accept"],
+    "expose_headers": ["Content-Disposition"],
     "methods": ["GET", "POST", "OPTIONS"],
+    "max_age": 3600
 }}, supports_credentials=False)
 
 # Set max upload size (500 MB)
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
+
+
+# Add CORS headers to all responses (backup to flask-cors)
+@app.after_request
+def after_request(response):
+    """Ensure CORS headers are present on all responses"""
+    origin = request.headers.get('Origin')
+    
+    # If origin is in allowed list, set it explicitly
+    if origin:
+        if origins_list == '*':
+            response.headers['Access-Control-Allow-Origin'] = '*'
+        elif isinstance(origins_list, list) and origin in origins_list:
+            response.headers['Access-Control-Allow-Origin'] = origin
+        elif origins_list == '*':
+            response.headers['Access-Control-Allow-Origin'] = '*'
+    
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
 
 # Register blueprints - All endpoints keep their original paths
 # No URL prefix to maintain backward compatibility
