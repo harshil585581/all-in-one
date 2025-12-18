@@ -8,16 +8,35 @@ import shutil
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
-from PIL import Image
-from rembg import remove
 
-# Try to import HEIF support (optional - Railway might not have native libs)
-try:
-    from pillow_heif import register_heif_opener
-    # Register HEIF/HEIC support for PIL
-    register_heif_opener()
-except Exception:
-    pass  # HEIF support not available, but app will still work for other formats
+# Lazy imports for heavy libraries - loaded only when endpoints are called
+# This reduces startup memory usage significantly
+_PIL_Image = None
+_rembg_remove = None
+_heif_registered = False
+
+def _ensure_heavy_imports():
+    """Lazy load heavy libraries only when needed"""
+    global _PIL_Image, _rembg_remove, _heif_registered
+    
+    if _PIL_Image is None:
+        from PIL import Image
+        _PIL_Image = Image
+    
+    if _rembg_remove is None:
+        from rembg import remove
+        _rembg_remove = remove
+    
+    # Try to register HEIF support once
+    if not _heif_registered:
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except Exception:
+            pass  # HEIF support not available
+        _heif_registered = True
+    
+    return _PIL_Image, _rembg_remove
 
 app = Flask(__name__)
 
@@ -69,6 +88,9 @@ def remove_background_preserve_format(image_path, original_filename):
     Returns:
         tuple: (output_path, format_name, output_extension)
     """
+    # Lazy load heavy libraries
+    Image, remove = _ensure_heavy_imports()
+    
     # Open image
     with Image.open(image_path) as img:
         print(f"  Opened: {img.size}, mode: {img.mode}")

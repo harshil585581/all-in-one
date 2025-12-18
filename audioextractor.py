@@ -10,7 +10,17 @@ import concurrent.futures
 import docx
 import PyPDF2
 import re
-from moviepy.editor import VideoFileClip
+
+# Lazy import for heavy library - loaded only when needed
+_VideoFileClip = None
+
+def _ensure_moviepy():
+    """Lazy load moviepy only when needed"""
+    global _VideoFileClip
+    if _VideoFileClip is None:
+        from moviepy.editor import VideoFileClip
+        _VideoFileClip = VideoFileClip
+    return _VideoFileClip
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:4200"}})
@@ -145,6 +155,9 @@ def extract_audio_from_video(video_path, output_dir):
     Returns the path to the extracted audio file or None if failed.
     """
     try:
+        # Lazy load moviepy
+        VideoFileClip = _ensure_moviepy()
+        
         print(f"[DEBUG] Starting audio extraction from video: {video_path}")
         print(f"[DEBUG] Video file exists: {os.path.exists(video_path)}")
         print(f"[DEBUG] Video file size: {os.path.getsize(video_path)} bytes")

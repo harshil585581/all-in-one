@@ -137,19 +137,15 @@ def img_compress():
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import from existing files with correct function names
-from imgtojpg import img_to_jpg as _img_to_jpg_original
-from imgtopng import img_to_png as _img_to_png_original
-from imgtowebp import img_webp as _img_webp_original
-from upscaleimg import upscale_zip_or_image as _upscale_original, index as _upscale_index
-from removeimgbg import remove_imgbg_endpoint as _remove_bg_original, index as _remove_bg_index
-from watermarkimgvideo import watermark_imgvideo_endpoint as _watermark_original, index as _watermark_index
+# Lazy loading for heavy endpoint modules - imported only when endpoints are called
+# This reduces startup memory footprint
 
 # Wrap the existing functions to keep them in this blueprint
 @image_bp.route("/img-jpg", methods=["POST", "OPTIONS"])
 def img_jpg():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from imgtojpg import img_to_jpg as _img_to_jpg_original
     return _img_to_jpg_original()
 
 
@@ -157,6 +153,7 @@ def img_jpg():
 def img_png():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from imgtopng import img_to_png as _img_to_png_original
     return _img_to_png_original()
 
 
@@ -164,6 +161,7 @@ def img_png():
 def img_webp():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from imgtowebp import img_webp as _img_webp_original
     return _img_webp_original()
 
 
@@ -171,6 +169,7 @@ def img_webp():
 def upscale():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from upscaleimg import upscale_zip_or_image as _upscale_original
     return _upscale_original()
 
 
@@ -178,6 +177,7 @@ def upscale():
 def remove_imgbg():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from removeimgbg import remove_imgbg_endpoint as _remove_bg_original
     return _remove_bg_original()
 
 
@@ -185,4 +185,5 @@ def remove_imgbg():
 def watermark_imgvideo():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from watermarkimgvideo import watermark_imgvideo_endpoint as _watermark_original
     return _watermark_original()

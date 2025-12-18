@@ -8,11 +8,7 @@ pdf_bp = Blueprint("pdf", __name__)
 # Add parent directory to path to import existing modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import from existing files
-from pdfprotection import protect_pdf as _protect_pdf_original
-from unlockpdf import unlock_pdf as _unlock_pdf_original
-from pdftoword import convert_pdf_to_word as _pdf_to_word_original
-from watermarkfiles import watermark_files as _watermark_files_original
+# Lazy loading for heavy modules
 
 
 @pdf_bp.route("/protect-pdf", methods=["POST", "OPTIONS"])
@@ -20,6 +16,7 @@ def protect_pdf():
     """Add password protection to PDF files"""
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from pdfprotection import protect_pdf as _protect_pdf_original
     return _protect_pdf_original()
 
 
@@ -28,6 +25,7 @@ def unlock_pdf():
     """Remove password protection from PDF files"""
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from unlockpdf import unlock_pdf as _unlock_pdf_original
     return _unlock_pdf_original()
 
 
@@ -36,6 +34,7 @@ def pdf_to_word():
     """Convert PDF to Word document"""
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from pdftoword import convert_pdf_to_word as _pdf_to_word_original
     return _pdf_to_word_original()
 
 
@@ -44,4 +43,5 @@ def watermark_files():
     """Add watermark to PDF files"""
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
+    from watermarkfiles import watermark_files as _watermark_files_original
     return _watermark_files_original()
