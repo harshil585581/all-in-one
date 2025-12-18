@@ -10,10 +10,14 @@ from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 from PIL import Image
 from rembg import remove
-from pillow_heif import register_heif_opener
 
-# Register HEIF/HEIC support for PIL
-register_heif_opener()
+# Try to import HEIF support (optional - Railway might not have native libs)
+try:
+    from pillow_heif import register_heif_opener
+    # Register HEIF/HEIC support for PIL
+    register_heif_opener()
+except Exception:
+    pass  # HEIF support not available, but app will still work for other formats
 
 app = Flask(__name__)
 
