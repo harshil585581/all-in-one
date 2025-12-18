@@ -146,12 +146,12 @@ from removeimgbg import remove_imgbg_endpoint as _remove_bg_original, index as _
 from watermarkimgvideo import watermark_imgvideo_endpoint as _watermark_original, index as _watermark_index
 
 # Wrap the existing functions to keep them in this blueprint
-@image_bp.route("/img-jpg", methods=["POST"])
+@image_bp.route("/img-jpg", methods=["POST", "OPTIONS"])
 def img_jpg():
     return _img_to_jpg_original()
 
 
-@image_bp.route("/img-png", methods=["POST"])
+@image_bp.route("/img-png", methods=["POST", "OPTIONS"])
 def img_png():
     return _img_to_png_original()
 
@@ -161,16 +161,16 @@ def img_webp():
     return _img_webp_original()
 
 
-@image_bp.route("/upscale", methods=["POST"])
+@image_bp.route("/upscale", methods=["POST", "OPTIONS"])
 def upscale():
     return _upscale_original()
 
 
-@image_bp.route("/remove-imgbg", methods=["POST"])
+@image_bp.route("/remove-imgbg", methods=["POST", "OPTIONS"])
 def remove_imgbg():
     return _remove_bg_original()
 
 
-@image_bp.route("/watermark-imgvideo", methods=["POST"])
+@image_bp.route("/watermark-imgvideo", methods=["POST", "OPTIONS"])
 def watermark_imgvideo():
     return _watermark_original()

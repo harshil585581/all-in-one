@@ -15,25 +15,25 @@ from pdftoword import convert_pdf_to_word as _pdf_to_word_original
 from watermarkfiles import watermark_files as _watermark_files_original
 
 
-@pdf_bp.route("/protect-pdf", methods=["POST"])
+@pdf_bp.route("/protect-pdf", methods=["POST", "OPTIONS"])
 def protect_pdf():
     """Add password protection to PDF files"""
     return _protect_pdf_original()
 
 
-@pdf_bp.route("/unlock-pdf", methods=["POST"])
+@pdf_bp.route("/unlock-pdf", methods=["POST", "OPTIONS"])
 def unlock_pdf():
     """Remove password protection from PDF files"""
     return _unlock_pdf_original()
 
 
-@pdf_bp.route("/pdf-to-word", methods=["POST"])
+@pdf_bp.route("/pdf-to-word", methods=["POST", "OPTIONS"])
 def pdf_to_word():
     """Convert PDF to Word document"""
     return _pdf_to_word_original()
 
 
-@pdf_bp.route("/watermark-files", methods=["POST"])
+@pdf_bp.route("/watermark-files", methods=["POST", "OPTIONS"])
 def watermark_files():
     """Add watermark to PDF files"""
     return _watermark_files_original()

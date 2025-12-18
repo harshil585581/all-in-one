@@ -13,13 +13,13 @@ from videoupscale import video_upscale as _video_upscale_original
 from downloadvideolink_batch import download_video_batch as _download_batch_original
 
 
-@video_bp.route("/video-upscale", methods=["POST"])
+@video_bp.route("/video-upscale", methods=["POST", "OPTIONS"])
 def video_upscale():
     """Upscale video using FFmpeg"""
     return _video_upscale_original()
 
 
-@video_bp.route("/download-video-batch", methods=["POST"])
+@video_bp.route("/download-video-batch", methods=["POST", "OPTIONS"])
 def download_video_batch():
     """Download videos from URLs (single or batch from file)"""
     return _download_batch_original()

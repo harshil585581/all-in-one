@@ -14,7 +14,7 @@ from filestoppt import convert_all_to_ppt as _to_ppt_original
 from filescompressor import compress_endpoint as _compress_original
 
 
-@conversion_bp.route("/file-pdf", methods=["POST"])
+@conversion_bp.route("/file-pdf", methods=["POST", "OPTIONS"])
 def file_pdf():
     """Convert various file formats to PDF"""
     return _file_pdf_original()
@@ -26,7 +26,7 @@ def status():
     return _status_original()
 
 
-@conversion_bp.route("/convert-all-to-ppt", methods=["POST"])
+@conversion_bp.route("/convert-all-to-ppt", methods=["POST", "OPTIONS"])
 def convert_to_ppt():
     """Convert files to PowerPoint format"""
     return _to_ppt_original()
