@@ -43,13 +43,17 @@ def convert_image_fileobj_to_png_bytes(fileobj) -> bytes:
         out_bytes.seek(0)
         return out_bytes.read()
 
-@app.route('/img-png', methods=['POST'])
+@app.route('/img-png', methods=['POST', 'OPTIONS'])
 def img_to_png():
     """
     Accepts multipart/form-data with key 'file'.
     If single image -> returns image/png with filename <originalname>.png
     If zip -> returns zip file (application/zip) containing converted PNGs
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
 

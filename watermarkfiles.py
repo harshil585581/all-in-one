@@ -286,7 +286,7 @@ def process_single_file(src_path, wtype, text, font_size, bold, rotation, positi
     return out_pdf_path
 
 
-@app.route('/watermark-files', methods=['POST'])
+@app.route('/watermark-files', methods=['POST', 'OPTIONS'])
 def watermark_files():
     """
     Expects multipart/form-data:
@@ -301,6 +301,10 @@ def watermark_files():
       - password: optional password for encrypted PDFs
       - image_file: file (if type=image)
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
 

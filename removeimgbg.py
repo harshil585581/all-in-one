@@ -101,7 +101,7 @@ def index():
     return jsonify({"status": "ok", "note": "Remove Image Background API running"})
 
 
-@app.post("/remove-imgbg")
+@app.route("/remove-imgbg", methods=['POST', 'OPTIONS'])
 def remove_imgbg_endpoint():
     """
     Endpoint to remove background from images.
@@ -109,6 +109,10 @@ def remove_imgbg_endpoint():
     - Single image upload: returns image in original format
     - ZIP file upload: returns ZIP with all processed images in their original formats
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     print("---- /remove-imgbg HIT ----")
     temp_root = None
     

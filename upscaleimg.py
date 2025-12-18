@@ -41,8 +41,12 @@ def index():
     return jsonify({"status": "ok", "note": "Upscale API running"})
 
 
-@app.post("/upscale")
+@app.route("/upscale", methods=['POST', 'OPTIONS'])
 def upscale_zip_or_image():
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     print("---- /upscale HIT ----")
     temp_root = None
     try:

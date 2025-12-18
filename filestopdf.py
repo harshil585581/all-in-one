@@ -247,8 +247,12 @@ def status():
     })
 
 
-@app.route("/file-pdf", methods=["POST"])
+@app.route("/file-pdf", methods=["POST", "OPTIONS"])
 def file_pdf():
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if "file" not in request.files:
         return jsonify({"error": "no file part"}), 400
     uploaded = request.files["file"]

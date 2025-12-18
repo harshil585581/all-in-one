@@ -440,13 +440,17 @@ def index():
     return jsonify({"status": "ok", "note": "Watermark Image/Video API running"})
 
 
-@app.post("/watermark-imgvideo")
+@app.route("/watermark-imgvideo", methods=['POST', 'OPTIONS'])
 def watermark_imgvideo_endpoint():
     """
     Endpoint to add watermarks to images and videos.
     - Single file upload: returns watermarked file
     - ZIP file upload: returns ZIP with all processed files
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     print("---- /watermark-imgvideo HIT ----")
     temp_root = None
     

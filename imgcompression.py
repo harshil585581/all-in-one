@@ -198,7 +198,7 @@ def compress_image_bytes(file_bytes: bytes, original_ext: str, quality: int = 85
         return out_buf.read(), mimetype, out_ext
 
 
-@app.route("/img-compress", methods=["POST"])
+@app.route("/img-compress", methods=["POST", "OPTIONS"])
 def img_compress():
     """
     POST form-data:
@@ -209,6 +209,10 @@ def img_compress():
       - Single compressed image if single image uploaded
       - ZIP file with compressed images if ZIP file uploaded
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 

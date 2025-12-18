@@ -15,9 +15,13 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 CORS(app, resources={r"/*": {"origins": "*"}})  # allow requests from any origin (adjust for production)
 
-@app.route('/pdf-to-word', methods=['POST'])
+@app.route('/pdf-to-word', methods=['POST', 'OPTIONS'])
 def convert_pdf_to_word():
     """API endpoint to convert PDF(s) to Word document(s)."""
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     print("\n" + "="*60)
     print("📥 NEW CONVERSION REQUEST")
     print("="*60)

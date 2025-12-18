@@ -68,7 +68,7 @@ def convert_image_to_jpeg_bytes(file_bytes: bytes, out_ext: str = '.jpg', qualit
         return out_buf.read()
 
 
-@app.route("/img-jpg", methods=["POST"])
+@app.route("/img-jpg", methods=["POST", "OPTIONS"])
 def img_to_jpg():
     """
     POST form-data:
@@ -76,6 +76,10 @@ def img_to_jpg():
       - format: 'jpg' or 'jpeg' (optional, default 'jpg')
       - quality: integer 1..95 (optional)
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 

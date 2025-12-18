@@ -131,9 +131,13 @@ def download_single_video(url, output_dir, index=0):
             'error': str(e)
         }
 
-@app.route('/download-video-batch', methods=['POST'])
+@app.route('/download-video-batch', methods=['POST', 'OPTIONS'])
 def download_video_batch():
     """Handle batch video downloads from URL or file with links"""
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     temp_dir = None
     
     try:

@@ -33,12 +33,16 @@ def encrypt_pdf_bytes(pdf_bytes: bytes, password: str) -> bytes:
     out_stream.seek(0)
     return out_stream.read()
 
-@app.route('/protect-pdf', methods=['POST'])
+@app.route('/protect-pdf', methods=['POST', 'OPTIONS'])
 def protect_pdf():
     """
     Accept 'file' (single file) and 'password' (string).
     If file is .pdf -> return encrypted pdf. If .zip -> return zip of encrypted pdfs.
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if 'file' not in request.files:
         return jsonify({'error': 'Missing file'}), 400
     password = request.form.get('password', '')

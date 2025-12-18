@@ -225,13 +225,17 @@ def convert_supported_file_to_pptx_bytes(file_path: str, ext: str, tmpdir: str):
 
 # Flask endpoint -------------------------------------------------------------
 
-@app.route('/convert-all-to-ppt', methods=['POST'])
+@app.route('/convert-all-to-ppt', methods=['POST', 'OPTIONS'])
 def convert_all_to_ppt():
     """
     Accepts 'file' multipart form.
     If single file -> return single PPTX.
     If ZIP -> convert each supported file inside and return a ZIP of results.
     """
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if 'file' not in request.files:
         return jsonify({'error': 'No file field'}), 400
     uploaded = request.files['file']

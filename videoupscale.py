@@ -232,8 +232,12 @@ def process_zip_videos(zip_file, scale, crf):
         except Exception as e:
             print(f"Error cleaning up temp dirs: {e}")
 
-@app.route('/video-upscale', methods=['POST'])
+@app.route('/video-upscale', methods=['POST', 'OPTIONS'])
 def video_upscale():
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     try:
         # Validate file upload
         if 'file' not in request.files:

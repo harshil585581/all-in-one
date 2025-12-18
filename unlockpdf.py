@@ -62,8 +62,12 @@ def process_pdf_file(path_on_disk, password):
 def home():
     return "PDF Unlock service. POST /unlock-pdf with 'file' and optional 'password'."
 
-@app.route('/unlock-pdf', methods=['POST'])
+@app.route('/unlock-pdf', methods=['POST', 'OPTIONS'])
 def unlock_pdf():
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
 
