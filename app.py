@@ -17,7 +17,7 @@ app = Flask(__name__)
 # Configure CORS
 # Allow multiple origins for both development and production
 # Supports localhost for dev and production URLs
-allowed_origins = os.environ.get('FRONTEND_URL', 'http://localhost:4200,https://yourdomain.com')
+allowed_origins = os.environ.get('FRONTEND_URL', 'http://localhost:4200,http://localhost:3000,https://all-in-one-frontend.netlify.app')
 
 # Split comma-separated origins or use wildcard
 if allowed_origins == '*':
@@ -27,34 +27,40 @@ else:
 
 CORS(app, resources={r"/*": {
     "origins": origins_list,
-    "allow_headers": ["Content-Type", "Authorization", "Accept"],
+    "allow_headers": ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
     "expose_headers": ["Content-Disposition"],
-    "methods": ["GET", "POST", "OPTIONS"],
-    "max_age": 3600
-}}, supports_credentials=False)
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "max_age": 3600,
+    "supports_credentials": False
+}})
 
 # Set max upload size (500 MB)
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 
 
-# Add CORS headers to all responses (backup to flask-cors)
+# Add CORS headers to all responses (ensures preflight requests are handled)
 @app.after_request
 def after_request(response):
-    """Ensure CORS headers are present on all responses"""
+    """Ensure CORS headers are present on all responses, including OPTIONS"""
     origin = request.headers.get('Origin')
     
-    # If origin is in allowed list, set it explicitly
+    # Set Access-Control-Allow-Origin header
     if origin:
         if origins_list == '*':
             response.headers['Access-Control-Allow-Origin'] = '*'
         elif isinstance(origins_list, list) and origin in origins_list:
             response.headers['Access-Control-Allow-Origin'] = origin
-        elif origins_list == '*':
-            response.headers['Access-Control-Allow-Origin'] = '*'
+        else:
+            # Fallback: allow localhost origins in development
+            if 'localhost' in origin or '127.0.0.1' in origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
     
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    # Set other CORS headers
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, X-Requested-With'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition'
     response.headers['Access-Control-Max-Age'] = '3600'
+    
     return response
 
 # Register blueprints - All endpoints keep their original paths

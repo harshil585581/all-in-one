@@ -13,7 +13,7 @@ from services.image_service import (
 image_bp = Blueprint("image", __name__)
 
 
-@image_bp.route("/img-compress", methods=["POST"])
+@image_bp.route("/img-compress", methods=["POST", "OPTIONS"])
 def img_compress():
     """
     POST form-data:
@@ -24,6 +24,9 @@ def img_compress():
       - Single compressed image if single image uploaded
       - ZIP file with compressed images if ZIP file uploaded
     """
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+        
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
