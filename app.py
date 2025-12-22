@@ -10,6 +10,8 @@ from routes.video import video_bp
 from routes.audio import audio_bp
 from routes.pdf import pdf_bp
 from routes.conversion import conversion_bp
+from routes.qr import qr_bp
+from routes.placeholder import placeholder_bp
 
 # Create Flask app
 app = Flask(__name__)
@@ -70,6 +72,8 @@ app.register_blueprint(video_bp)
 app.register_blueprint(audio_bp)
 app.register_blueprint(pdf_bp)
 app.register_blueprint(conversion_bp)
+app.register_blueprint(qr_bp)
+app.register_blueprint(placeholder_bp)
 
 
 @app.route('/', methods=['GET'])
@@ -107,6 +111,12 @@ def index():
                 "/convert-all-to-ppt",
                 "/compress",
                 "/status"
+            ],
+            "qr": [
+                "/generate-qr"
+            ],
+            "placeholder": [
+                "/generate-placeholder"
             ]
         }
     })
