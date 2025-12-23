@@ -17,9 +17,9 @@ app = Flask(__name__)
 # Configure CORS with proper OPTIONS support
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:4200", "http://127.0.0.1:4200"],
+        "origins": "*",
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
         "expose_headers": ["Content-Disposition"],
         "supports_credentials": False
     }
@@ -209,12 +209,9 @@ def _process_downloaded_video(ydl, info, output_dir, index, quality_tag):
         }
     return None
 
-@app.route('/download-video-batch', methods=['POST', 'OPTIONS'])
+@app.route('/download-video-batch', methods=['POST'])
 def download_video_batch():
     """Handle batch video downloads from URL or file with links"""
-    # Handle OPTIONS preflight request
-    if request.method == 'OPTIONS':
-        return jsonify({"status": "ok"}), 200
     
     temp_dir = None
     
@@ -313,9 +310,7 @@ def download_video_batch():
                 mimetype='video/mp4'
             )
             
-            # Add CORS headers
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition'
+            # Add Cache-Control header
             response.headers['Cache-Control'] = 'no-cache'
             
             # Cleanup after sending
@@ -350,9 +345,7 @@ def download_video_batch():
             mimetype='application/zip'
         )
         
-        # Add CORS headers
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        # Add Cache-Control header
         response.headers['Cache-Control'] = 'no-cache'
         
         # Cleanup after sending
