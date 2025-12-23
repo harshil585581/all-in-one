@@ -99,6 +99,16 @@ def download_audio(url, output_dir):
             'no_warnings': False,
             'extract_flat': False,
             'prefer_free_formats': True,  # Prefer open formats when available
+            # Fix YouTube bot detection and JavaScript runtime issues
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web'],  # Try multiple clients for maximum compatibility
+                    'skip': ['dash', 'hls'],  # Skip DASH and HLS to avoid JavaScript requirement
+                }
+            },
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'nocheckcertificate': True,  # Bypass SSL certificate verification
+            'cookiesfrombrowser': None,  # Don't use browser cookies
         }
         
         print(f"Downloading audio from: {url}")
@@ -112,7 +122,7 @@ def download_audio(url, output_dir):
                 files = os.listdir(download_dir)
                 
                 # Look for common audio formats
-                audio_extensions = ['.m4a', '.opus', '.webm', '.mp3', '.aac', '.ogg', '.wav']
+                audio_extensions = ['.m4a', '.opus', '.webm', '.mp3', '.aac', '.ogg', '.wav', '.mp4']
                 audio_files = [f for f in files if any(f.endswith(ext) for ext in audio_extensions)]
                 
                 if audio_files:
@@ -225,6 +235,7 @@ def get_audio_mimetype(filename):
     ext = Path(filename).suffix.lower()
     mimetypes = {
         '.m4a': 'audio/mp4',
+        '.mp4': 'audio/mp4',
         '.mp3': 'audio/mpeg',
         '.opus': 'audio/opus',
         '.webm': 'audio/webm',

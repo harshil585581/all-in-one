@@ -61,20 +61,63 @@ def extract_urls_from_docx(file_path):
         print(f"DOCX extraction error: {e}")
     return urls
 
-def download_single_video(url, output_dir, index=0):
-    """Download a single video and return the file path"""
+def download_single_video(url, output_dir, index=0, quality='best'):
+    """Download a single video and return the file path
+    
+    Args:
+        url: Video URL to download
+        output_dir: Directory to save video
+        index: Video index for naming
+        quality: Video quality - '1080p', '720p', '360p', '240p', '144p', or 'best'
+    """
     try:
         output_template = os.path.join(output_dir, f'video_{index}.%(ext)s')
         
+        # Quality to format mapping - Simplified for reliability
+        quality_formats = {
+            # ULTRA HIGH QUALITY - 4K (Best available, no limits)
+            '2160p': 'bestvideo+bestaudio/best',
+            
+            # VERY HIGH QUALITY - 2K (Best up to 1440p)
+            '1440p': 'bestvideo[height<=1440]+bestaudio/best',
+            
+            # HIGH QUALITY - Full HD (Best up to 1080p)
+            '1080p': 'bestvideo[height<=1080]+bestaudio/best',
+            
+            # MEDIUM-HIGH QUALITY - HD (Best up to 720p)
+            '720p': 'bestvideo[height<=720]+bestaudio/best',
+            
+            # MEDIUM QUALITY - SD (Best up to 480p)
+            '360p': 'bestvideo[height<=480]+bestaudio/best',
+            
+            # LOW QUALITY - Smallest available
+            '240p': 'worstvideo+worstaudio/worst',
+            '144p': 'worstvideo+worstaudio/worst',
+            
+            # BEST - Absolute highest
+            'best': 'bestvideo+bestaudio/best'
+        }
+        
+        # Get format string for selected quality, default to 'best'
+        format_string = quality_formats.get(quality, quality_formats['best'])
+        
+        print(f"\n{'='*70}")
+        print(f"🎬 [DOWNLOAD START] Quality: {quality}")
+        print(f"📝 [FORMAT STRING] {format_string}")
+        print(f"🔗 [URL] {url[:70]}...")
+        print(f"{'='*70}\n")
+        
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': format_string,
             'outtmpl': output_template,
-            'quiet': True,
-            'no_warnings': True,
+            'quiet': False,  # Enable logging
+            'no_warnings': False,  # Show warnings
+            'verbose': True,  # Show detailed format selection
             'nocheckcertificate': True,
             'merge_output_format': 'mp4',
+            # Let yt-dlp handle YouTube with default settings (better PO token support)
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
                 'Sec-Fetch-Mode': 'navigate',
@@ -84,52 +127,87 @@ def download_single_video(url, output_dir, index=0):
             'skip_unavailable_fragments': True,
             'geo_bypass': True,
             'geo_bypass_country': 'US',
+            # WhatsApp compatibility: Ensure MP4 container with AAC audio
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
+            # Force AAC audio codec for WhatsApp compatibility
+            'postprocessor_args': [
+                '-c:v', 'copy',       # Don't re-encode video (faster)
+                '-c:a', 'aac',        # Convert audio to AAC
+                '-b:a', '128k',       # Audio bitrate 128kbps
+                '-ar', '44100',       # Audio sample rate
+                '-ac', '2',           # Stereo audio
+                '-movflags', '+faststart',  # Optimize for streaming
+            ],
         }
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info is None:
-                return None
-            
-            filename = ydl.prepare_filename(info)
-            if os.path.exists(filename):
-                # Get video title for better naming
-                title = info.get('title', f'video_{index}')
-                safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-                safe_title = safe_title[:50]
+        # Download video
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info is None:
+                    return None
                 
-                ext = os.path.splitext(filename)[1]
-                new_filename = os.path.join(output_dir, f'{safe_title}{ext}')
+                return _process_downloaded_video(ydl, info, output_dir, index, quality)
                 
-                # Handle duplicate names
-                counter = 1
-                base_new_filename = new_filename
-                while os.path.exists(new_filename):
-                    name_without_ext = os.path.splitext(base_new_filename)[0]
-                    new_filename = f"{name_without_ext}_{counter}{ext}"
-                    counter += 1
+        except Exception as e:
+            print(f"❌ Download failed: {str(e)}")
+            return {'success': False, 'url': url, 'error': str(e)}
                 
-                # Rename if needed
-                if filename != new_filename:
-                    shutil.move(filename, new_filename)
-                    filename = new_filename
-                
-                return {
-                    'success': True,
-                    'url': url,
-                    'filename': filename,
-                    'title': safe_title
-                }
-            
-        return None
-        
     except Exception as e:
-        print(f"❌ Download error for {url}: {str(e)}")
+        print(f"❌ General Download Error: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+def _process_downloaded_video(ydl, info, output_dir, index, quality_tag):
+    """Helper to process successfully downloaded video"""
+    filename = ydl.prepare_filename(info)
+    if os.path.exists(filename):
+        # Log what was actually downloaded
+        filesize = os.path.getsize(filename)
+        filesize_mb = filesize / (1024 * 1024)
+        resolution = info.get('resolution', 'unknown')
+        format_id = info.get('format_id', 'unknown')
+        format_note = info.get('format_note', 'unknown')
+        
+        print(f"\n✅ [DOWNLOAD COMPLETE]")
+        print(f"   Format ID: {format_id}")
+        print(f"   Resolution: {resolution}")
+        print(f"   File Size: {filesize_mb:.2f} MB")
+        print(f"   Quality Tag: {quality_tag}")
+        
+        # Get video title for better naming
+        title = info.get('title', f'video_{index}')
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        safe_title = safe_title[:50]
+        
+        ext = os.path.splitext(filename)[1]
+        new_filename = os.path.join(output_dir, f'{safe_title}{ext}')
+        
+        # Handle duplicate names
+        counter = 1
+        base_new_filename = new_filename
+        while os.path.exists(new_filename):
+            name_without_ext = os.path.splitext(base_new_filename)[0]
+            new_filename = f"{name_without_ext}_{counter}{ext}"
+            counter += 1
+        
+        # Rename if needed
+        if filename != new_filename:
+            shutil.move(filename, new_filename)
+            filename = new_filename
+        
+        print(f"   Saved as: {os.path.basename(filename)}\n")
+        
         return {
-            'success': False,
-            'url': url,
-            'error': str(e)
+            'success': True,
+            'url': info.get('webpage_url', 'url'),
+            'filename': filename,
+            'title': safe_title,
+            'filesize_mb': filesize_mb
         }
+    return None
 
 @app.route('/download-video-batch', methods=['POST', 'OPTIONS'])
 def download_video_batch():
@@ -142,6 +220,16 @@ def download_video_batch():
     
     try:
         urls = []
+        
+        # Get quality parameter from request (default to 'best')
+        quality = request.form.get('quality', 'best').lower()
+        
+        # Validate quality parameter
+        allowed_qualities = ['2160p', '1440p', '1080p', '720p', '360p', '240p', '144p', 'best']
+        if quality not in allowed_qualities:
+            quality = 'best'
+        
+        print(f"📊 Selected quality: {quality}")
         
         # Check if file was uploaded
         if 'file' in request.files:
@@ -193,8 +281,8 @@ def download_video_batch():
         failed_urls = []
         
         for idx, url in enumerate(urls):
-            print(f"🔄 Downloading {idx + 1}/{len(urls)}: {url[:60]}...")
-            result = download_single_video(url, temp_dir, idx)
+            print(f"🔄 Downloading {idx + 1}/{len(urls)}: {url[:60]}... (Quality: {quality})")
+            result = download_single_video(url, temp_dir, idx, quality)
             if result and result.get('success'):
                 downloaded_files.append(result['filename'])
                 print(f"   ✅ Success: {result.get('title', 'video')}")
