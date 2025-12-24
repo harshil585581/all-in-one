@@ -14,3 +14,5 @@ remove img bg
 upscale video
 watermark images,videos
 download video from link(downloadvideolink_batch.py)
+qr code Generator
+placeholder generator

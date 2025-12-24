@@ -89,26 +89,33 @@ def download_audio(url, output_dir):
         download_dir = os.path.join(output_dir, download_id)
         os.makedirs(download_dir, exist_ok=True)
         
-        # yt-dlp options for audio extraction WITHOUT FFmpeg
-        # This downloads the best audio-only format available
+        # yt-dlp options for audio extraction
+        # Strategy: Download best available format and extract audio with FFmpeg
         ydl_opts = {
-            'format': 'bestaudio/best',
+            # Format selector: Get best audio, or worst video if needed (will extract audio)
+            # This is more permissive to work around YouTube restrictions
+            'format': 'bestaudio/worst',
             'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-            # NO postprocessors - no conversion needed!
             'quiet': False,
             'no_warnings': False,
             'extract_flat': False,
-            'prefer_free_formats': True,  # Prefer open formats when available
-            # Fix YouTube bot detection and JavaScript runtime issues
+            # Post-processor to extract audio from any format
+            # This ensures we always get audio-only output
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'm4a',
+                'preferredquality': '192',
+                'nopostoverwrites': False,
+            }],
+            # YouTube-specific settings for compatibility
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios', 'web'],  # Try multiple clients for maximum compatibility
-                    'skip': ['dash', 'hls'],  # Skip DASH and HLS to avoid JavaScript requirement
+                    'player_client': ['android'],
                 }
             },
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'nocheckcertificate': True,  # Bypass SSL certificate verification
-            'cookiesfrombrowser': None,  # Don't use browser cookies
+            'nocheckcertificate': True,
+            'cookiesfrombrowser': None,
         }
         
         print(f"Downloading audio from: {url}")
