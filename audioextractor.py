@@ -89,12 +89,11 @@ def download_audio(url, output_dir):
         download_dir = os.path.join(output_dir, download_id)
         os.makedirs(download_dir, exist_ok=True)
         
-        # yt-dlp options for audio extraction
+        # yt-dlp options for audio extraction - Universal configuration for all platforms
         # Strategy: Download best available format and extract audio with FFmpeg
         ydl_opts = {
-            # Format selector: Get best audio, or worst video if needed (will extract audio)
-            # This is more permissive to work around YouTube restrictions
-            'format': 'bestaudio/worst',
+            # Format selector: Get best audio quality available
+            'format': 'bestaudio/best',
             'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
             'quiet': False,
             'no_warnings': False,
@@ -107,15 +106,29 @@ def download_audio(url, output_dir):
                 'preferredquality': '192',
                 'nopostoverwrites': False,
             }],
-            # YouTube-specific settings for compatibility
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android'],
-                }
-            },
+            # Universal settings that work across all platforms
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'nocheckcertificate': True,
-            'cookiesfrombrowser': None,
+            # Retries for better reliability
+            'retries': 10,
+            'fragment_retries': 10,
+            'skip_unavailable_fragments': True,
+            # Platform-specific optimizations (applied only when needed)
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                },
+                'instagram': {
+                    'username': None,  # Can be configured if needed
+                    'password': None,
+                }
+            },
+            # HTTP headers for better compatibility
+            'http_headers': {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            },
         }
         
         print(f"Downloading audio from: {url}")
@@ -446,10 +459,10 @@ def health():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("Audio Extractor Backend Service (NO FFmpeg Required)")
+    print("Audio Extractor Backend Service")
     print("=" * 60)
     print("Starting Flask server on http://127.0.0.1:5000")
-    print("Audio formats: M4A, OPUS, WEBM (native, no conversion)")
+    print("Audio formats: M4A, OPUS, WEBM (native, with FFmpeg conversion)")
     print("Supported platforms: YouTube, Instagram, Twitter, TikTok, Facebook, and 1000+ more sites")
     print("Endpoint: POST /download-audio-batch")
     print("=" * 60)

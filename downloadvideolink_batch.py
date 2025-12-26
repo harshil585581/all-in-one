@@ -115,7 +115,7 @@ def download_single_video(url, output_dir, index=0, quality='best'):
             'verbose': True,  # Show detailed format selection
             'nocheckcertificate': True,
             'merge_output_format': 'mp4',
-            # Let yt-dlp handle YouTube with default settings (better PO token support)
+            # Universal user agent and headers that work across all platforms
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'http_headers': {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -127,6 +127,16 @@ def download_single_video(url, output_dir, index=0, quality='best'):
             'skip_unavailable_fragments': True,
             'geo_bypass': True,
             'geo_bypass_country': 'US',
+            # Platform-specific optimizations (applied automatically by yt-dlp)
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                },
+                'instagram': {
+                    'username': None,  # Can be configured if needed
+                    'password': None,
+                }
+            },
             # WhatsApp compatibility: Ensure MP4 container with AAC audio
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
