@@ -11,6 +11,8 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import PyPDF2
 from docx import Document
+import sys
+import subprocess
 
 app = Flask(__name__)
 
@@ -24,6 +26,41 @@ CORS(app, resources={
         "supports_credentials": False
     }
 })
+
+def find_ffmpeg():
+    """Find FFmpeg executable path - works on Windows, Linux, and macOS"""
+    import shutil
+    
+    # Use shutil.which() to get absolute path - most reliable
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        return ffmpeg_path
+    
+    
+    # Common installation paths
+    common_paths = [
+        '/usr/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+        'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+        'C:\\ffmpeg\\bin\\ffmpeg.exe',
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(path):
+            return path
+    
+    return None
+
+def verify_ffmpeg():
+    """Verify FFmpeg is available and log its location"""
+    ffmpeg_path = find_ffmpeg()
+    if ffmpeg_path:
+        print(f"[FFmpeg] Found at: {ffmpeg_path}")
+        return ffmpeg_path
+    else:
+        print("[FFmpeg] WARNING: FFmpeg not found in system PATH!")
+        print("[FFmpeg] Video downloads may fail without FFmpeg")
+        return None
 
 def extract_urls_from_text(text):
     """Extract all URLs from text using regex"""
@@ -73,30 +110,37 @@ def download_single_video(url, output_dir, index=0, quality='best'):
     try:
         output_template = os.path.join(output_dir, f'video_{index}.%(ext)s')
         
-        # Quality to format mapping - Simplified for reliability
-        quality_formats = {
-            # ULTRA HIGH QUALITY - 4K (Best available, no limits)
-            '2160p': 'bestvideo+bestaudio/best',
-            
-            # VERY HIGH QUALITY - 2K (Best up to 1440p)
-            '1440p': 'bestvideo[height<=1440]+bestaudio/best',
-            
-            # HIGH QUALITY - Full HD (Best up to 1080p)
-            '1080p': 'bestvideo[height<=1080]+bestaudio/best',
-            
-            # MEDIUM-HIGH QUALITY - HD (Best up to 720p)
-            '720p': 'bestvideo[height<=720]+bestaudio/best',
-            
-            # MEDIUM QUALITY - SD (Best up to 480p)
-            '360p': 'bestvideo[height<=480]+bestaudio/best',
-            
-            # LOW QUALITY - Smallest available
-            '240p': 'worstvideo+worstaudio/worst',
-            '144p': 'worstvideo+worstaudio/worst',
-            
-            # BEST - Absolute highest
-            'best': 'bestvideo+bestaudio/best'
-        }
+        # Find FFmpeg location first
+        ffmpeg_location = find_ffmpeg()
+        
+        # Quality to format mapping
+        # If FFmpeg is available: use format merging for best quality
+        # If FFmpeg is NOT available: use pre-merged formats only
+        if ffmpeg_location:
+            # FFmpeg available - can merge video+audio for best quality
+            quality_formats = {
+                '2160p': 'bestvideo[height<=2160]+bestaudio/best',
+                '1440p': 'bestvideo[height<=1440]+bestaudio/best',
+                '1080p': 'bestvideo[height<=1080]+bestaudio/best',
+                '720p': 'bestvideo[height<=720]+bestaudio/best',
+                '360p': 'bestvideo[height<=480]+bestaudio/best',
+                '240p': 'worstvideo+worstaudio/worst',
+                '144p': 'worstvideo+worstaudio/worst',
+                'best': 'bestvideo+bestaudio/best'
+            }
+        else:
+            # NO FFmpeg - use pre-merged formats only (no merging required)
+            quality_formats = {
+                '2160p': 'best[height<=2160]',
+                '1440p': 'best[height<=1440]',
+                '1080p': 'best[height<=1080]',
+                '720p': 'best[height<=720]',
+                '360p': 'best[height<=480]',
+                '240p': 'worst',
+                '144p': 'worst',
+                'best': 'best'
+            }
+            print(f"⚠️ [WARNING] FFmpeg not found - using pre-merged formats (may have lower quality)")
         
         # Get format string for selected quality, default to 'best'
         format_string = quality_formats.get(quality, quality_formats['best'])
@@ -105,6 +149,10 @@ def download_single_video(url, output_dir, index=0, quality='best'):
         print(f"🎬 [DOWNLOAD START] Quality: {quality}")
         print(f"📝 [FORMAT STRING] {format_string}")
         print(f"🔗 [URL] {url[:70]}...")
+        if ffmpeg_location:
+            print(f"✅ [FFMPEG] Available at: {ffmpeg_location}")
+        else:
+            print(f"⚠️ [FFMPEG] Not found - using pre-merged formats")
         print(f"{'='*70}\n")
         
         ydl_opts = {
@@ -153,6 +201,10 @@ def download_single_video(url, output_dir, index=0, quality='best'):
             ],
         }
         
+        # Add FFmpeg location if found
+        if ffmpeg_location:
+            ydl_opts['ffmpeg_location'] = ffmpeg_location
+        
         # Download video
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -163,12 +215,20 @@ def download_single_video(url, output_dir, index=0, quality='best'):
                 return _process_downloaded_video(ydl, info, output_dir, index, quality)
                 
         except Exception as e:
-            print(f"❌ Download failed: {str(e)}")
-            return {'success': False, 'url': url, 'error': str(e)}
+            error_msg = str(e)
+            print(f"❌ Download failed: {error_msg}")
+            import traceback
+            print("[ERROR] Full traceback:")
+            traceback.print_exc()
+            return {'success': False, 'url': url, 'error': error_msg}
                 
     except Exception as e:
-        print(f"❌ General Download Error: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        error_msg = str(e)
+        print(f"❌ General Download Error: {error_msg}")
+        import traceback
+        print("[ERROR] Full traceback:")
+        traceback.print_exc()
+        return {'success': False, 'error': error_msg}
 
 def _process_downloaded_video(ydl, info, output_dir, index, quality_tag):
     """Helper to process successfully downloaded video"""
@@ -371,7 +431,11 @@ def download_video_batch():
         return response
         
     except Exception as e:
-        print(f"❌ General error: {str(e)}")
+        error_msg = str(e)
+        print(f"❌ General error: {error_msg}")
+        import traceback
+        print("[ERROR] Full traceback:")
+        traceback.print_exc()
         
         # Cleanup on error
         if temp_dir and os.path.exists(temp_dir):
@@ -379,8 +443,13 @@ def download_video_batch():
                 shutil.rmtree(temp_dir)
             except Exception:
                 pass
-                
-        return jsonify({'error': f'An error occurred: {str(e)}'}), 500
+        
+        # Return detailed error for debugging
+        return jsonify({
+            'error': error_msg,
+            'type': type(e).__name__,
+            'details': 'Check server logs for full traceback'
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -397,4 +466,8 @@ if __name__ == '__main__':
     print("📍 Endpoint: http://127.0.0.1:5000/download-video-batch")
     print("✨ Features: Single URL, Batch URLs, File Upload (.txt, .docx, .pdf)")
     print("🌐 Supported: YouTube, Vimeo, TikTok, Instagram, and 1000+ sites")
+    
+    # Verify FFmpeg on startup
+    verify_ffmpeg()
+    
     app.run(debug=True, port=5000, host='127.0.0.1')

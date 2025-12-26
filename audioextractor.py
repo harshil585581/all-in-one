@@ -10,6 +10,8 @@ import concurrent.futures
 import docx
 import PyPDF2
 import re
+import sys
+import subprocess
 
 # Lazy import for heavy library - loaded only when needed
 _VideoFileClip = None
@@ -21,6 +23,41 @@ def _ensure_moviepy():
         from moviepy.editor import VideoFileClip
         _VideoFileClip = VideoFileClip
     return _VideoFileClip
+
+def find_ffmpeg():
+    """Find FFmpeg executable path - works on Windows, Linux, and macOS"""
+    import shutil
+    
+    # Use shutil.which() to get absolute path - most reliable
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        return ffmpeg_path
+    
+    
+    # Common installation paths
+    common_paths = [
+        '/usr/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+        'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+        'C:\\ffmpeg\\bin\\ffmpeg.exe',
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(path):
+            return path
+    
+    return None
+
+def verify_ffmpeg():
+    """Verify FFmpeg is available and log its location"""
+    ffmpeg_path = find_ffmpeg()
+    if ffmpeg_path:
+        print(f"[FFmpeg] Found at: {ffmpeg_path}")
+        return ffmpeg_path
+    else:
+        print("[FFmpeg] WARNING: FFmpeg not found in system PATH!")
+        print("[FFmpeg] Audio extraction may fail without FFmpeg")
+        return None
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:4200"}})
@@ -80,7 +117,7 @@ def sanitize_filename(filename):
 def download_audio(url, output_dir):
     """
     Download audio from a video URL using yt-dlp.
-    NO FFmpeg required - downloads in native format (m4a, opus, webm, etc.)
+    Requires FFmpeg for audio extraction and format conversion.
     Returns the path to the downloaded audio file or None if failed.
     """
     try:
@@ -89,8 +126,11 @@ def download_audio(url, output_dir):
         download_dir = os.path.join(output_dir, download_id)
         os.makedirs(download_dir, exist_ok=True)
         
-        # yt-dlp options for audio extraction - Universal configuration for all platforms
-        # Strategy: Download best available format and extract audio with FFmpeg
+        # Find FFmpeg location
+        ffmpeg_location = find_ffmpeg()
+        
+        # yt-dlp options for audio extraction
+        # Strategy: If FFmpeg available, extract and convert. If not, download best audio as-is.
         ydl_opts = {
             # Format selector: Get best audio quality available
             'format': 'bestaudio/best',
@@ -98,14 +138,6 @@ def download_audio(url, output_dir):
             'quiet': False,
             'no_warnings': False,
             'extract_flat': False,
-            # Post-processor to extract audio from any format
-            # This ensures we always get audio-only output
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'm4a',
-                'preferredquality': '192',
-                'nopostoverwrites': False,
-            }],
             # Universal settings that work across all platforms
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'nocheckcertificate': True,
@@ -130,6 +162,22 @@ def download_audio(url, output_dir):
                 'Sec-Fetch-Mode': 'navigate',
             },
         }
+        
+        # Configure FFmpeg-based processing if available
+        if ffmpeg_location:
+            # FFmpeg is available - extract and convert to M4A
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'm4a',
+                'preferredquality': '192',
+                'nopostoverwrites': False,
+            }]
+            ydl_opts['ffmpeg_location'] = ffmpeg_location
+            print(f"[DEBUG] Using FFmpeg at: {ffmpeg_location} for audio conversion")
+        else:
+            # No FFmpeg - download audio in native format (no conversion)
+            print("[WARNING] FFmpeg not found - downloading audio in native format (no conversion)")
+            # No postprocessors - just download the audio stream as-is
         
         print(f"Downloading audio from: {url}")
         
@@ -173,7 +221,10 @@ def download_audio(url, output_dir):
         return None
         
     except Exception as e:
-        print(f"Error downloading audio from {url}: {e}")
+        print(f"[ERROR] Error downloading audio from {url}: {e}")
+        import traceback
+        print(f"[ERROR] Full traceback:")
+        traceback.print_exc()
         # Clean up on error
         if 'download_dir' in locals() and os.path.exists(download_dir):
             shutil.rmtree(download_dir, ignore_errors=True)
@@ -447,10 +498,18 @@ def download_audio_batch():
             raise e
     
     except Exception as e:
-        print(f"Error in download_audio_batch: {e}")
+        error_msg = str(e)
+        print(f"[ERROR] Error in download_audio_batch: {error_msg}")
         import traceback
+        print("[ERROR] Full traceback:")
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        
+        # Return detailed error for debugging
+        return jsonify({
+            'error': error_msg,
+            'type': type(e).__name__,
+            'details': 'Check server logs for full traceback'
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health():
