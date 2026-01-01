@@ -1,6 +1,5 @@
-# downloadvideolink_batch.py
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS
+# downloadvideolink_batch.py - ULTRA-FAST VERSION
+from flask import request, send_file, jsonify
 import yt_dlp
 import os
 import tempfile
@@ -8,466 +7,588 @@ import shutil
 import zipfile
 from pathlib import Path
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import PyPDF2
 from docx import Document
-import sys
-import subprocess
+import logging
+from functools import wraps
+import time
 
-app = Flask(__name__)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Configure CORS with proper OPTIONS support
-CORS(app, resources={
-    r"/*": {
-        "origins": "*",
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
-        "expose_headers": ["Content-Disposition"],
-        "supports_credentials": False
-    }
-})
+# Configuration
+MAX_URLS = 50
+MAX_FILE_SIZE_MB = 100
+DOWNLOAD_TIMEOUT = 300
+ALLOWED_EXTENSIONS = {'.txt', '.pdf', '.docx'}
 
 def find_ffmpeg():
-    """Find FFmpeg executable path - works on Windows, Linux, and macOS"""
-    import shutil
+    """Find FFmpeg executable"""
+    import shutil as sh
+    ffmpeg = sh.which('ffmpeg')
+    if ffmpeg:
+        return ffmpeg
     
-    # Use shutil.which() to get absolute path - most reliable
-    ffmpeg_path = shutil.which('ffmpeg')
-    if ffmpeg_path:
-        return ffmpeg_path
+    paths = ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', 
+             'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe', 'C:\\ffmpeg\\bin\\ffmpeg.exe']
     
-    
-    # Common installation paths
-    common_paths = [
-        '/usr/bin/ffmpeg',
-        '/usr/local/bin/ffmpeg',
-        'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
-        'C:\\ffmpeg\\bin\\ffmpeg.exe',
-    ]
-    
-    for path in common_paths:
-        if os.path.exists(path):
-            return path
-    
+    for p in paths:
+        if os.path.exists(p):
+            return p
     return None
 
-def verify_ffmpeg():
-    """Verify FFmpeg is available and log its location"""
-    ffmpeg_path = find_ffmpeg()
-    if ffmpeg_path:
-        print(f"[FFmpeg] Found at: {ffmpeg_path}")
-        return ffmpeg_path
-    else:
-        print("[FFmpeg] WARNING: FFmpeg not found in system PATH!")
-        print("[FFmpeg] Video downloads may fail without FFmpeg")
-        return None
+def validate_url(url):
+    """Validate URL format"""
+    if not url or not isinstance(url, str):
+        return False
+    url_pattern = r'^https?://'
+    return bool(re.match(url_pattern, url.strip()))
+
+def sanitize_filename(filename):
+    """Sanitize filename to prevent directory traversal"""
+    safe_chars = "".join(c for c in filename if c.isalnum() or c in (' ', '-', '_', '.'))
+    return safe_chars[:255]
 
 def extract_urls_from_text(text):
-    """Extract all URLs from text using regex"""
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-    urls = re.findall(url_pattern, text)
-    return [url.strip() for url in urls if url.strip()]
+    """Extract URLs from text"""
+    try:
+        urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text)
+        return [u.strip() for u in urls if validate_url(u)]
+    except Exception as e:
+        logger.error(f"Error extracting URLs from text: {e}")
+        return []
 
-def extract_urls_from_txt(file_path):
+def extract_urls_from_txt(path):
     """Extract URLs from .txt file"""
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    return extract_urls_from_text(content)
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            return extract_urls_from_text(f.read())
+    except Exception as e:
+        logger.error(f"Error reading txt file: {e}")
+        return []
 
-def extract_urls_from_pdf(file_path):
+def extract_urls_from_pdf(path):
     """Extract URLs from .pdf file"""
     urls = []
     try:
-        with open(file_path, 'rb') as f:
-            pdf_reader = PyPDF2.PdfReader(f)
-            for page in pdf_reader.pages:
-                text = page.extract_text()
-                urls.extend(extract_urls_from_text(text))
+        with open(path, 'rb') as f:
+            pdf = PyPDF2.PdfReader(f)
+            for page in pdf.pages:
+                try:
+                    text = page.extract_text()
+                    urls.extend(extract_urls_from_text(text))
+                except Exception as e:
+                    logger.warning(f"Error extracting from PDF page: {e}")
+                    continue
     except Exception as e:
-        print(f"PDF extraction error: {e}")
+        logger.error(f"Error reading PDF file: {e}")
     return urls
 
-def extract_urls_from_docx(file_path):
+def extract_urls_from_docx(path):
     """Extract URLs from .docx file"""
     urls = []
     try:
-        doc = Document(file_path)
+        doc = Document(path)
         for para in doc.paragraphs:
-            urls.extend(extract_urls_from_text(para.text))
+            try:
+                urls.extend(extract_urls_from_text(para.text))
+            except Exception as e:
+                logger.warning(f"Error extracting from DOCX paragraph: {e}")
+                continue
     except Exception as e:
-        print(f"DOCX extraction error: {e}")
+        logger.error(f"Error reading DOCX file: {e}")
     return urls
 
-def download_single_video(url, output_dir, index=0, quality='best'):
-    """Download a single video and return the file path
-    
-    Args:
-        url: Video URL to download
-        output_dir: Directory to save video
-        index: Video index for naming
-        quality: Video quality - '1080p', '720p', '360p', '240p', '144p', or 'best'
-    """
+def select_format_by_quality(formats, target_quality):
+    """Select best format ID based on target quality"""
     try:
-        output_template = os.path.join(output_dir, f'video_{index}.%(ext)s')
-        
-        # Find FFmpeg location first
-        ffmpeg_location = find_ffmpeg()
-        
-        # Quality to format mapping
-        # If FFmpeg is available: use format merging for best quality
-        # If FFmpeg is NOT available: use pre-merged formats only
-        if ffmpeg_location:
-            # FFmpeg available - can merge video+audio for best quality
-            quality_formats = {
-                '2160p': 'bestvideo[height<=2160]+bestaudio/best',
-                '1440p': 'bestvideo[height<=1440]+bestaudio/best',
-                '1080p': 'bestvideo[height<=1080]+bestaudio/best',
-                '720p': 'bestvideo[height<=720]+bestaudio/best',
-                '360p': 'bestvideo[height<=480]+bestaudio/best',
-                '240p': 'worstvideo+worstaudio/worst',
-                '144p': 'worstvideo+worstaudio/worst',
-                'best': 'bestvideo+bestaudio/best'
-            }
-        else:
-            # NO FFmpeg - use pre-merged formats only (no merging required)
-            quality_formats = {
-                '2160p': 'best[height<=2160]',
-                '1440p': 'best[height<=1440]',
-                '1080p': 'best[height<=1080]',
-                '720p': 'best[height<=720]',
-                '360p': 'best[height<=480]',
-                '240p': 'worst',
-                '144p': 'worst',
-                'best': 'best'
-            }
-            print(f"⚠️ [WARNING] FFmpeg not found - using pre-merged formats (may have lower quality)")
-        
-        # Get format string for selected quality, default to 'best'
-        format_string = quality_formats.get(quality, quality_formats['best'])
-        
-        print(f"\n{'='*70}")
-        print(f"🎬 [DOWNLOAD START] Quality: {quality}")
-        print(f"📝 [FORMAT STRING] {format_string}")
-        print(f"🔗 [URL] {url[:70]}...")
-        if ffmpeg_location:
-            print(f"✅ [FFMPEG] Available at: {ffmpeg_location}")
-        else:
-            print(f"⚠️ [FFMPEG] Not found - using pre-merged formats")
-        print(f"{'='*70}\n")
-        
-        ydl_opts = {
-            'format': format_string,
-            'outtmpl': output_template,
-            'quiet': False,  # Enable logging
-            'no_warnings': False,  # Show warnings
-            'verbose': True,  # Show detailed format selection
-            'nocheckcertificate': True,
-            'merge_output_format': 'mp4',
-            # Universal user agent and headers that work across all platforms
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'http_headers': {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
-            },
-            'retries': 10,
-            'fragment_retries': 10,
-            'skip_unavailable_fragments': True,
-            'geo_bypass': True,
-            'geo_bypass_country': 'US',
-            # Platform-specific optimizations (applied automatically by yt-dlp)
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web'],
-                },
-                'instagram': {
-                    'username': None,  # Can be configured if needed
-                    'password': None,
-                }
-            },
-            # WhatsApp compatibility: Ensure MP4 container with AAC audio
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-            # Force AAC audio codec for WhatsApp compatibility
-            'postprocessor_args': [
-                '-c:v', 'copy',       # Don't re-encode video (faster)
-                '-c:a', 'aac',        # Convert audio to AAC
-                '-b:a', '128k',       # Audio bitrate 128kbps
-                '-ar', '44100',       # Audio sample rate
-                '-ac', '2',           # Stereo audio
-                '-movflags', '+faststart',  # Optimize for streaming
-            ],
+        quality_heights = {
+            '2160p': 2160, '1440p': 1440, '1080p': 1080, '720p': 720,
+            '480p': 480, '360p': 360, '240p': 240, '144p': 144, 'best': 9999
         }
         
-        # Add FFmpeg location if found
-        if ffmpeg_location:
-            ydl_opts['ffmpeg_location'] = ffmpeg_location
+        target_height = quality_heights.get(target_quality, 9999)
         
-        # Download video
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if info is None:
-                    return None
-                
-                return _process_downloaded_video(ydl, info, output_dir, index, quality)
-                
-        except Exception as e:
-            error_msg = str(e)
-            print(f"❌ Download failed: {error_msg}")
-            import traceback
-            print("[ERROR] Full traceback:")
-            traceback.print_exc()
-            return {'success': False, 'url': url, 'error': error_msg}
-                
+        # Filter video formats
+        video_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('height')]
+        
+        if not video_formats:
+            return None
+        
+        # Find suitable formats
+        suitable = [f for f in video_formats if f.get('height', 0) <= target_height]
+        
+        if not suitable:
+            suitable = sorted(video_formats, key=lambda x: x.get('height', 0))
+            return suitable[0]['format_id'] if suitable else None
+        
+        # Get best quality at or below target
+        best = max(suitable, key=lambda x: (x.get('height', 0), x.get('tbr', 0)))
+        return best['format_id']
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ General Download Error: {error_msg}")
-        import traceback
-        print("[ERROR] Full traceback:")
-        traceback.print_exc()
-        return {'success': False, 'error': error_msg}
+        logger.error(f"Error selecting format: {e}")
+        return None
 
-def _process_downloaded_video(ydl, info, output_dir, index, quality_tag):
-    """Helper to process successfully downloaded video"""
-    filename = ydl.prepare_filename(info)
-    if os.path.exists(filename):
-        # Log what was actually downloaded
-        filesize = os.path.getsize(filename)
-        filesize_mb = filesize / (1024 * 1024)
-        resolution = info.get('resolution', 'unknown')
-        format_id = info.get('format_id', 'unknown')
-        format_note = info.get('format_note', 'unknown')
-        
-        print(f"\n✅ [DOWNLOAD COMPLETE]")
-        print(f"   Format ID: {format_id}")
-        print(f"   Resolution: {resolution}")
-        print(f"   File Size: {filesize_mb:.2f} MB")
-        print(f"   Quality Tag: {quality_tag}")
-        
-        # Get video title for better naming
-        title = info.get('title', f'video_{index}')
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        safe_title = safe_title[:50]
-        
-        ext = os.path.splitext(filename)[1]
-        new_filename = os.path.join(output_dir, f'{safe_title}{ext}')
-        
-        # Handle duplicate names
-        counter = 1
-        base_new_filename = new_filename
-        while os.path.exists(new_filename):
-            name_without_ext = os.path.splitext(base_new_filename)[0]
-            new_filename = f"{name_without_ext}_{counter}{ext}"
-            counter += 1
-        
-        # Rename if needed
-        if filename != new_filename:
-            shutil.move(filename, new_filename)
-            filename = new_filename
-        
-        print(f"   Saved as: {os.path.basename(filename)}\n")
-        
-        return {
-            'success': True,
-            'url': info.get('webpage_url', 'url'),
-            'filename': filename,
-            'title': safe_title,
-            'filesize_mb': filesize_mb
-        }
-    return None
-
-@app.route('/download-video-batch', methods=['POST'])
-def download_video_batch():
-    """Handle batch video downloads from URL or file with links"""
+def detect_platform(url):
+    """Detect video platform from URL"""
+    url_lower = url.lower()
     
+    platforms = {
+        'youtube': ['youtube.com', 'youtu.be'],
+        'twitter': ['twitter.com', 'x.com', 't.co'],
+        'instagram': ['instagram.com', 'instagr.am'],
+        'facebook': ['facebook.com', 'fb.watch', 'fb.com'],
+        'tiktok': ['tiktok.com', 'vm.tiktok.com'],
+        'reddit': ['reddit.com', 'redd.it', 'v.redd.it'],
+        'vimeo': ['vimeo.com'],
+        'dailymotion': ['dailymotion.com', 'dai.ly'],
+        'twitch': ['twitch.tv', 'clips.twitch.tv'],
+        'linkedin': ['linkedin.com'],
+        'snapchat': ['snapchat.com'],
+        'pinterest': ['pinterest.com', 'pin.it'],
+        'tumblr': ['tumblr.com'],
+        'streamable': ['streamable.com'],
+        'imgur': ['imgur.com'],
+        'soundcloud': ['soundcloud.com'],
+        'spotify': ['spotify.com'],
+        'bandcamp': ['bandcamp.com'],
+    }
+    
+    for platform, domains in platforms.items():
+        if any(domain in url_lower for domain in domains):
+            return platform
+    
+    return 'generic'
+
+def get_platform_optimized_options(platform, quality='best'):
+    """Get platform-specific optimized download options"""
+    
+    # Base ultra-fast options for all platforms
+    base_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'socket_timeout': 15,
+        'retries': 2,
+        'fragment_retries': 2,
+        'extractor_retries': 1,
+        'concurrent_fragment_downloads': 16,
+        'http_chunk_size': 20971520,
+        'buffersize': 65536,
+        'throttledratelimit': None,
+        'ratelimit': None,
+        'noprogress': True,
+        'prefer_insecure': True,
+        'no_check_certificates': True,
+        'extract_flat': False,
+        'lazy_playlist': True,
+        'no_color': True,
+        'geo_bypass': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        },
+    }
+    
+    # Platform-specific optimizations
+    platform_opts = {
+        'youtube': {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
+        },
+        'twitter': {
+            'format': 'best',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://twitter.com/',
+            },
+        },
+        'instagram': {
+            'format': 'best',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+                'Referer': 'https://www.instagram.com/',
+            },
+        },
+        'facebook': {
+            'format': 'best',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+        },
+        'tiktok': {
+            'format': 'best',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.tiktok.com/',
+            },
+        },
+        'reddit': {
+            'format': 'best',
+            'merge_output_format': 'mp4',
+        },
+        'vimeo': {
+            'format': 'best[ext=mp4]/best',
+            'http_headers': {
+                'Referer': 'https://vimeo.com/',
+            },
+        },
+        'twitch': {
+            'format': 'best',
+            'http_headers': {
+                'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+            },
+        },
+        'snapchat': {
+            'format': 'best',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+            },
+        },
+    }
+    
+    # Merge base with platform-specific options
+    opts = base_opts.copy()
+    if platform in platform_opts:
+        opts.update(platform_opts[platform])
+        logger.info(f"Using {platform} optimized settings")
+    else:
+        opts['format'] = 'best'
+        logger.info(f"Using generic settings for {platform}")
+    
+    return opts
+
+def download_single_video(url, output_dir, index=0, quality='best'):
+    """Download video with MAXIMUM SPEED optimization - UNIVERSAL PLATFORM SUPPORT"""
+    temp_files = []
+    
+    try:
+        if not validate_url(url):
+            logger.warning(f"Invalid URL: {url}")
+            return {'success': False, 'error': 'Invalid URL'}
+        
+        # Detect platform
+        platform = detect_platform(url)
+        logger.info(f"Platform detected: {platform}")
+        
+        output_template = os.path.join(output_dir, f'video_{index}.%(ext)s')
+        ffmpeg = find_ffmpeg()
+        
+        logger.info(f"Downloading {quality}: {url[:60]}...")
+        start_time = time.time()
+        
+        # Extract info (FAST)
+        info_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'socket_timeout': 15,
+            'extractor_retries': 1,
+            'geo_bypass': True,
+        }
+        
+        with yt_dlp.YoutubeDL(info_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            if not info:
+                return {'success': False, 'error': 'Cannot extract video info'}
+            
+            formats = info.get('formats', [])
+            
+            # For platforms with quality selection (mainly YouTube)
+            format_string = None
+            if platform == 'youtube' and formats:
+                # Select format
+                video_format_id = select_format_by_quality(formats, quality)
+                
+                if video_format_id:
+                    # Get audio
+                    audio_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
+                    audio_format_id = None
+                    if audio_formats:
+                        best_audio = max(audio_formats, key=lambda x: x.get('abr', 0))
+                        audio_format_id = best_audio['format_id']
+                    
+                    # Construct format string
+                    format_string = f"{video_format_id}+{audio_format_id}" if audio_format_id else video_format_id
+                    logger.info(f"Format: {format_string}")
+            
+            # For other platforms, use best available
+            if not format_string:
+                format_string = 'best'
+                logger.info(f"Using best available format for {platform}")
+            
+            # Get platform-optimized options
+            download_opts = get_platform_optimized_options(platform, quality)
+            download_opts['format'] = format_string
+            download_opts['outtmpl'] = output_template
+            download_opts['merge_output_format'] = 'mp4'
+            
+            # FFMPEG SPEED OPTIMIZATION
+            download_opts['postprocessor_args'] = {
+                'ffmpeg': [
+                    '-preset', 'ultrafast',  # Fastest encoding
+                    '-threads', '0',  # Use all CPU cores
+                    '-movflags', '+faststart',  # Web optimization
+                ]
+            }
+            
+            # Add cookies support for platforms that need it
+            download_opts['cookiefile'] = None  # Can be set if needed
+            
+            if ffmpeg:
+                download_opts['ffmpeg_location'] = ffmpeg
+            
+            with yt_dlp.YoutubeDL(download_opts) as ydl_download:
+                ydl_download.download([url])
+            
+            # Find file (check multiple extensions)
+            filename = output_template.replace('%(ext)s', 'mp4')
+            
+            if not os.path.exists(filename):
+                possible_exts = ['.webm', '.mkv', '.mp4', '.mov', '.avi', '.flv', '.m4v', '.ts']
+                for ext in possible_exts:
+                    test_file = output_template.replace('%(ext)s', ext[1:])
+                    if os.path.exists(test_file):
+                        filename = test_file
+                        break
+            
+            if not os.path.exists(filename):
+                return {'success': False, 'error': 'Downloaded file not found'}
+            
+            temp_files.append(filename)
+            
+            # Validate file
+            size_mb = os.path.getsize(filename) / (1024 * 1024)
+            if size_mb == 0:
+                return {'success': False, 'error': 'Downloaded file is empty'}
+            
+            # Sanitize title
+            title = info.get('title', f'video_{index}')
+            safe_title = sanitize_filename(title)[:50]
+            
+            # Rename
+            ext = os.path.splitext(filename)[1]
+            new_name = os.path.join(output_dir, f'{safe_title}{ext}')
+            
+            counter = 1
+            base_name = new_name
+            while os.path.exists(new_name):
+                new_name = f"{os.path.splitext(base_name)[0]}_{counter}{ext}"
+                counter += 1
+            
+            if filename != new_name:
+                shutil.move(filename, new_name)
+                filename = new_name
+            
+            elapsed = time.time() - start_time
+            speed_mbps = (size_mb * 8) / elapsed if elapsed > 0 else 0
+            
+            logger.info(f"Success [{platform}]: {size_mb:.1f}MB in {elapsed:.1f}s ({speed_mbps:.1f} Mbps) - {os.path.basename(filename)}")
+            
+            return {
+                'success': True,
+                'filename': filename,
+                'title': safe_title,
+                'filesize_mb': size_mb,
+                'download_time': elapsed,
+                'platform': platform
+            }
+            
+    except Exception as e:
+        logger.error(f"Download error: {str(e)}")
+        for f in temp_files:
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+            except:
+                pass
+        return {'success': False, 'error': str(e)}
+
+def download_video_batch():
+    """Main endpoint - ULTRA-FAST VERSION"""
     temp_dir = None
     
     try:
         urls = []
-        
-        # Get quality parameter from request (default to 'best')
         quality = request.form.get('quality', 'best').lower()
         
-        # Validate quality parameter
-        allowed_qualities = ['2160p', '1440p', '1080p', '720p', '360p', '240p', '144p', 'best']
-        if quality not in allowed_qualities:
+        # Validate quality
+        valid_qualities = ['2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p', 'best']
+        if quality not in valid_qualities:
             quality = 'best'
         
-        print(f"📊 Selected quality: {quality}")
+        logger.info(f"Request: quality={quality}")
         
-        # Check if file was uploaded
+        # Handle file upload
         if 'file' in request.files:
             uploaded_file = request.files['file']
-            if uploaded_file.filename == '':
+            
+            if not uploaded_file.filename:
                 return jsonify({'error': 'No file selected'}), 400
             
-            # Save uploaded file temporarily
+            file_ext = os.path.splitext(uploaded_file.filename.lower())[1]
+            if file_ext not in ALLOWED_EXTENSIONS:
+                return jsonify({'error': f'Invalid file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
+            
             temp_dir = tempfile.mkdtemp()
-            file_path = os.path.join(temp_dir, uploaded_file.filename)
-            uploaded_file.save(file_path)
+            file_path = os.path.join(temp_dir, sanitize_filename(uploaded_file.filename))
             
-            print(f"📄 Processing file: {uploaded_file.filename}")
+            try:
+                uploaded_file.save(file_path)
+            except Exception as e:
+                logger.error(f"File save error: {e}")
+                return jsonify({'error': 'Failed to save uploaded file'}), 500
             
-            # Extract URLs based on file type
-            filename_lower = uploaded_file.filename.lower()
-            if filename_lower.endswith('.txt'):
+            # Extract URLs
+            if file_ext == '.txt':
                 urls = extract_urls_from_txt(file_path)
-            elif filename_lower.endswith('.pdf'):
+            elif file_ext == '.pdf':
                 urls = extract_urls_from_pdf(file_path)
-            elif filename_lower.endswith('.docx'):
+            elif file_ext == '.docx':
                 urls = extract_urls_from_docx(file_path)
-            else:
-                return jsonify({'error': 'Unsupported file type. Please use .txt, .pdf, or .docx'}), 400
-            
-            if not urls:
-                return jsonify({'error': 'No valid URLs found in file'}), 400
-                
-        # Check if single URL was provided
-        elif 'url' in request.form:
-            url = request.form.get('url')
-            if not url:
-                return jsonify({'error': 'No URL provided'}), 400
-            urls = [url]
-        else:
-            return jsonify({'error': 'No URL or file provided'}), 400
         
-        # Create temp directory if not created
+        elif 'url' in request.form:
+            url = request.form.get('url', '').strip()
+            if validate_url(url):
+                urls = [url]
+        
+        if not urls:
+            return jsonify({'error': 'No valid URLs found'}), 400
+        
+        if len(urls) > MAX_URLS:
+            return jsonify({'error': f'Too many URLs. Maximum: {MAX_URLS}'}), 400
+        
         if not temp_dir:
             temp_dir = tempfile.mkdtemp()
         
-        # Remove duplicates while preserving order
+        # Remove duplicates
         urls = list(dict.fromkeys(urls))
         
-        print(f"📥 Processing {len(urls)} URL(s)")
+        logger.info(f"Processing {len(urls)} URL(s)")
         
-        # Download videos
-        downloaded_files = []
-        failed_urls = []
+        # PARALLEL DOWNLOADS (Increased from 3 to 5)
+        downloaded = []
+        failed = 0
         
-        for idx, url in enumerate(urls):
-            print(f"🔄 Downloading {idx + 1}/{len(urls)}: {url[:60]}... (Quality: {quality})")
-            result = download_single_video(url, temp_dir, idx, quality)
-            if result and result.get('success'):
-                downloaded_files.append(result['filename'])
-                print(f"   ✅ Success: {result.get('title', 'video')}")
-            else:
-                failed_urls.append(url)
-                error_msg = result.get('error', 'Unknown error') if result else 'Download failed'
-                print(f"   ❌ Failed: {error_msg[:60]}")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        max_parallel = min(5, len(urls))  # Increased to 5 parallel downloads
         
-        if not downloaded_files:
-            error_msg = 'All downloads failed'
-            if failed_urls:
-                error_msg += f'. Failed URLs: {len(failed_urls)}'
-            return jsonify({'error': error_msg}), 500
-        
-        print(f"✅ Successfully downloaded {len(downloaded_files)}/{len(urls)} video(s)")
-        
-        # Single video - return directly
-        if len(downloaded_files) == 1:
-            video_file = downloaded_files[0]
-            filename = os.path.basename(video_file)
+        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+            future_to_url = {
+                executor.submit(download_single_video, url, temp_dir, idx, quality): (idx, url)
+                for idx, url in enumerate(urls)
+            }
             
-            print(f"📤 Sending single video: {filename}")
+            for future in as_completed(future_to_url):
+                idx, url = future_to_url[future]
+                try:
+                    result = future.result()
+                    if result and result.get('success'):
+                        downloaded.append(result['filename'])
+                        dl_time = result.get('download_time', 0)
+                        logger.info(f"[{idx+1}/{len(urls)}] ✓ {result.get('filesize_mb', 0):.1f}MB in {dl_time:.1f}s")
+                    else:
+                        failed += 1
+                        logger.warning(f"[{idx+1}/{len(urls)}] ✗ Failed")
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"[{idx+1}/{len(urls)}] ✗ Error: {str(e)}")
+        
+        if not downloaded:
+            return jsonify({'error': 'All downloads failed'}), 500
+        
+        logger.info(f"Completed: {len(downloaded)}/{len(urls)} (failed: {failed})")
+        
+        # Single video - send file
+        if len(downloaded) == 1:
+            video_file = downloaded[0]
             
-            response = send_file(
-                video_file,
+            try:
+                resp = send_file(
+                    video_file,
+                    as_attachment=True,
+                    download_name=sanitize_filename(os.path.basename(video_file)),
+                    mimetype='video/mp4'
+                )
+                resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                resp.headers['Pragma'] = 'no-cache'
+                resp.headers['Expires'] = '0'
+                
+                import threading
+                def delayed_cleanup():
+                    time.sleep(10)
+                    try:
+                        if temp_dir and os.path.exists(temp_dir):
+                            shutil.rmtree(temp_dir)
+                            logger.info(f"Cleaned up temp: {temp_dir}")
+                    except Exception as e:
+                        logger.error(f"Cleanup error: {e}")
+                
+                cleanup_thread = threading.Thread(target=delayed_cleanup, daemon=True)
+                cleanup_thread.start()
+                
+                return resp
+            except Exception as e:
+                logger.error(f"Send file error: {e}")
+                if temp_dir and os.path.exists(temp_dir):
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except:
+                        pass
+                return jsonify({'error': 'Failed to send file'}), 500
+        
+        # Multiple videos - create ZIP
+        try:
+            zip_path = os.path.join(temp_dir, 'videos.zip')
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for video_file in downloaded:
+                    zf.write(video_file, sanitize_filename(os.path.basename(video_file)))
+            
+            resp = send_file(
+                zip_path,
                 as_attachment=True,
-                download_name=filename,
-                mimetype='video/mp4'
+                download_name='videos.zip',
+                mimetype='application/zip'
             )
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
             
-            # Add Cache-Control header
-            response.headers['Cache-Control'] = 'no-cache'
-            
-            # Cleanup after sending
-            @response.call_on_close
-            def cleanup():
+            import threading
+            def delayed_cleanup():
+                time.sleep(10)
                 try:
                     if temp_dir and os.path.exists(temp_dir):
                         shutil.rmtree(temp_dir)
-                        print(f"🧹 Cleaned up temp directory")
+                        logger.info(f"Cleaned up temp: {temp_dir}")
                 except Exception as e:
-                    print(f"⚠️ Cleanup error: {str(e)}")
+                    logger.error(f"Cleanup error: {e}")
             
-            return response
-        
-        # Multiple videos - create ZIP
-        zip_path = os.path.join(temp_dir, 'videos.zip')
-        
-        print(f"📦 Creating ZIP with {len(downloaded_files)} videos...")
-        
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for video_file in downloaded_files:
-                arcname = os.path.basename(video_file)
-                zipf.write(video_file, arcname)
-                print(f"   ➕ Added: {arcname}")
-        
-        print(f"✅ ZIP created successfully")
-        
-        response = send_file(
-            zip_path,
-            as_attachment=True,
-            download_name='videos.zip',
-            mimetype='application/zip'
-        )
-        
-        # Add Cache-Control header
-        response.headers['Cache-Control'] = 'no-cache'
-        
-        # Cleanup after sending
-        @response.call_on_close
-        def cleanup():
-            try:
-                if temp_dir and os.path.exists(temp_dir):
+            cleanup_thread = threading.Thread(target=delayed_cleanup, daemon=True)
+            cleanup_thread.start()
+            
+            return resp
+        except Exception as e:
+            logger.error(f"ZIP creation error: {e}")
+            if temp_dir and os.path.exists(temp_dir):
+                try:
                     shutil.rmtree(temp_dir)
-                    print(f"🧹 Cleaned up temp directory")
-            except Exception as e:
-                print(f"⚠️ Cleanup error: {str(e)}")
-        
-        return response
+                except:
+                    pass
+            return jsonify({'error': 'Failed to create ZIP'}), 500
         
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ General error: {error_msg}")
-        import traceback
-        print("[ERROR] Full traceback:")
-        traceback.print_exc()
-        
-        # Cleanup on error
-        if temp_dir and os.path.exists(temp_dir):
+        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
+    
+    finally:
+        if temp_dir and 'Downloads' not in temp_dir:
             try:
-                shutil.rmtree(temp_dir)
-            except Exception:
-                pass
-        
-        # Return detailed error for debugging
-        return jsonify({
-            'error': error_msg,
-            'type': type(e).__name__,
-            'details': 'Check server logs for full traceback'
-        }), 500
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'ok',
-        'service': 'batch-video-download',
-        'features': ['single-url', 'batch-url', 'file-upload'],
-        'supported_files': ['.txt', '.pdf', '.docx']
-    }), 200
-
-if __name__ == '__main__':
-    print("🎥 Batch Video Download Service Starting...")
-    print("📍 Endpoint: http://127.0.0.1:5000/download-video-batch")
-    print("✨ Features: Single URL, Batch URLs, File Upload (.txt, .docx, .pdf)")
-    print("🌐 Supported: YouTube, Vimeo, TikTok, Instagram, and 1000+ sites")
-    
-    # Verify FFmpeg on startup
-    verify_ffmpeg()
-    
-    app.run(debug=True, port=5000, host='127.0.0.1')
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
